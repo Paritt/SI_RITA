@@ -34,7 +34,7 @@ class RITA_GUI(ttkb.Window):
         self._enable_windows_dark_titlebar()
         
 
-        self.model_var = tk.StringVar(value="gpt-5")
+        self.model_var = tk.StringVar(value="sonnet")
         self.show_think_var = tk.BooleanVar(value=True)
         self.show_tool_use_var = tk.BooleanVar(value=True)
         self.debug_mode_var = tk.BooleanVar(value=False)
