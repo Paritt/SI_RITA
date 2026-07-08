@@ -1,0 +1,7 @@
+langgraph
+langchain-core
+langchain-openai
+langchain-anthropic
+langsmith
+ttkbootstrap
+python-dotenv
