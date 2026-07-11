@@ -24,10 +24,13 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def setupPath(project_dir: str):
     """Prepend the project's site-packages to sys.path if present."""
-    for candidate in (
-        os.path.join(project_dir, ".venv", "Lib", "site-packages"),        # Windows venv (RayStation)
-        os.path.join(project_dir, ".venv", "lib", "python3.9", "site-packages"),  # local macOS/Linux venv
-    ):
+    import glob
+    candidates = [
+        os.path.join(project_dir, ".venv", "Lib", "site-packages"),  # Windows venv (RayStation)
+    ]
+    # local macOS/Linux venv layout (.venv/lib/python3.x/site-packages)
+    candidates += glob.glob(os.path.join(project_dir, ".venv", "lib", "python3.*", "site-packages"))
+    for candidate in candidates:
         if os.path.isdir(candidate) and candidate not in sys.path:
             sys.path.insert(0, candidate)
             os.environ["SCRIPT_PATH"] = candidate
