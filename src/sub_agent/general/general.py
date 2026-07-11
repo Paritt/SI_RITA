@@ -1,16 +1,4 @@
-import sys
 import os
-
-# ── Path setup ──────────────────────────────────────────────────────
-path = ".venv/lib/python3.9/site-packages"
-
-def setupPath(path):
-    """Set the path and environment"""
-    sys.path.insert(0, path)
-    os.environ["SCRIPT_PATH"] = path
-
-setupPath(path)
-# ────────────────────────────────────────────────────────────────────
 
 from langchain_core.messages import AIMessage, SystemMessage
 from src.util.helpers import _to_ollama_tools
