@@ -14,6 +14,7 @@ Sections:
   7. High-loss filter (P0)
   8. P2: build adjust JSON from P1 text
 """
+from __future__ import annotations  # allow "X | Y" annotations on Python 3.9
 
 import os
 import sys
@@ -39,7 +40,10 @@ from io import StringIO
 from typing import List, Any
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
 
-from raystation import *
+try:
+    from raystation import *
+except ModuleNotFoundError:
+    print("Warning: 'raystation' module not found in helpers.py. Patient-data features will not work.")
 
 
 # ====================================================================
@@ -506,11 +510,13 @@ def _dvh_statistics(plan, roi_name: str) -> dict:
         "D98": d_98,
     }
     
-plan = get_current('Plan')
-d_avg = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Average"),2)
-d_min = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Min"),2)
-d_max = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Max"),2)
-d_2, d_50, d_95, d_98 = [round(d, 2) for d in plan.TreatmentCourse.TotalDose.GetDoseAtRelativeVolumes(RoiName='PTV_4140',RelativeVolumes=[0.02,0.5,0.95,0.98])]
+# NOTE: stray module-level scratch code removed — it ran at import time against a
+# hardcoded ROI ('PTV_4140') and would crash unless that exact plan was open.
+# plan = get_current('Plan')
+# d_avg = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Average"),2)
+# d_min = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Min"),2)
+# d_max = round(plan.TreatmentCourse.TotalDose.GetDoseStatistic(RoiName='PTV_4140',DoseType="Max"),2)
+# d_2, d_50, d_95, d_98 = [round(d, 2) for d in plan.TreatmentCourse.TotalDose.GetDoseAtRelativeVolumes(RoiName='PTV_4140',RelativeVolumes=[0.02,0.5,0.95,0.98])]
 
 _STAT_RE = re.compile(
     r"Dmin=([\d.]+).*?Dmax=([\d.]+).*?Dmean=([\d.]+)"

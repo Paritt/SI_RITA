@@ -22,7 +22,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from langgraph.graph.message import add_messages
-from typing import TypedDict, Annotated, Sequence, NotRequired
+from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 
 # ── LangSmith tracing ──────────────────────────────────────────────

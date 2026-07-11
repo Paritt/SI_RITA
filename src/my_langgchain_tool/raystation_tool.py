@@ -13,7 +13,10 @@ setupPath(path)
 # ────────────────────────────────────────────────────────────────────
 
 from langchain_core.tools import tool
-from raystation import *
+try:
+    from raystation import *
+except ModuleNotFoundError:
+    print("Warning: 'raystation' module not found in raystation_tool.py. Patient-data tools will not work.")
 
 @tool
 def get_patient_name() -> str:

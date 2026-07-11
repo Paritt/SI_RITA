@@ -1,10 +1,15 @@
+from __future__ import annotations  # allow "X | Y" annotations on Python 3.9
+
 import tkinter as tk
 import threading
 import time
 import re
 from collections import deque
 from uuid import uuid4
-from raystation import *
+try:
+    from connect import *
+except ImportError:
+    print("Warning: 'raystation' module not found. Some features may not work.")
 import sys
 import os
 import ctypes
@@ -28,7 +33,12 @@ from ttkbootstrap.widgets.scrolled import ScrolledText
 
 class RITA_GUI(ttkb.Window):
     def __init__(self):
-        super().__init__(themename="darkly")
+        # macOS system Tk (8.5) can't decode ttkbootstrap's PNG window icon, so
+        # skip it there (iconphoto=None). Windows/RayStation keeps the icon.
+        super().__init__(
+            themename="darkly",
+            iconphoto=None if sys.platform == "darwin" else "",
+        )
         self.title("RITA - Radiotherapy Intelligent Treatment Assistant")
         self.geometry("540x800")
         self._enable_windows_dark_titlebar()
