@@ -14,29 +14,10 @@ import sys
 import os
 import ctypes
 
-# ── Path setup ──────────────────────────────────────────────────────
-# Make the bundled dependencies importable by RayStation's Python.
-# The path is resolved absolutely from this script's location, so it works
-# regardless of RayStation's current working directory. The venv must be
-# built on Windows with RayStation's Python (see README) so the compiled
-# packages (e.g. pydantic_core) match the interpreter.
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def setupPath(project_dir: str):
-    """Prepend the project's site-packages to sys.path if present."""
-    import glob
-    candidates = [
-        os.path.join(project_dir, ".venv", "Lib", "site-packages"),  # Windows venv (RayStation)
-    ]
-    # local macOS/Linux venv layout (.venv/lib/python3.x/site-packages)
-    candidates += glob.glob(os.path.join(project_dir, ".venv", "lib", "python3.*", "site-packages"))
-    for candidate in candidates:
-        if os.path.isdir(candidate) and candidate not in sys.path:
-            sys.path.insert(0, candidate)
-            os.environ["SCRIPT_PATH"] = candidate
-            return
-
-setupPath(PROJECT_DIR)
+# -- Path setup ---------------------------------------------------------------
+_VENV_PATH = r"P:\BOO\SI_RITA\.venv\Lib\site-packages"
+sys.path.insert(0, _VENV_PATH)
+os.environ["SCRIPT_PATH"] = _VENV_PATH
 # ────────────────────────────────────────────────────────────────────
 
 from langchain_core.messages import AnyMessage, AIMessage, HumanMessage, ToolMessage
