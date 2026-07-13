@@ -1,7 +1,6 @@
 import os
 
 from langchain_core.messages import AIMessage, SystemMessage
-from src.util.helpers import _to_ollama_tools
 from src.rita_graph import AgentState
 from src.my_langgchain_tool.raystation_tool import tools as raystation_tools
 from src.my_langgchain_tool.math_tool import tools as math_tools
@@ -30,8 +29,9 @@ def general_agent(state: AgentState) -> AgentState:
         # TODO Add more model
         print("ERROR: Unsupported model selected. Please choose a valid model.")
 
-    ollama_tools = _to_ollama_tools(ALL_GENERAL_TOOLS)
-    model_with_tools = model.bind(tools=ollama_tools)
+    # bind_tools converts the tools into each provider's native schema
+    # (OpenAI "function" format vs Anthropic "input_schema" format).
+    model_with_tools = model.bind_tools(ALL_GENERAL_TOOLS)
 
     request = [
         SystemMessage(content=general_agent_system_message),

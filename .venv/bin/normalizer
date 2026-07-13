@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/Users/paritt.w/Desktop/Work🏥/Raystation Script🧑🏻‍💻✨/Script Project/SI_RITA/.venv/bin/python3.11" "$0" "$@"
+'''exec' "/Users/paritt.w/Desktop/Work🏥/Raystation Script🧑🏻‍💻✨/Script Project/SI_RITA/.venv/bin/python" "$0" "$@"
 ' '''
 import sys
 from charset_normalizer.cli import cli_detect
