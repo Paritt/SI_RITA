@@ -15,7 +15,7 @@ import os
 import ctypes
 
 # -- Path setup ---------------------------------------------------------------
-_VENV_PATH = r"P:\BOO\SI_RITA\.venv\Lib\site-packages"
+_VENV_PATH = r"P:\BOO\SI_RITA\.venv\Lib\site-packages" #Hi
 sys.path.insert(0, _VENV_PATH)
 os.environ["SCRIPT_PATH"] = _VENV_PATH
 # ────────────────────────────────────────────────────────────────────
