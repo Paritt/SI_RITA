@@ -1,6 +1,6 @@
 from langchain_core.tools import tool
 try:
-    from raystation import *
+    from connect import *
 except ModuleNotFoundError:
     print("Warning: 'raystation' module not found in raystation_tool.py. Patient-data tools will not work.")
 
