@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from langchain_core.tools import tool
 try:
     from connect import *
@@ -374,12 +374,123 @@ def get_optimization_functions() -> str:
         return f"Error reading optimization functions: {e}"
 
 
+# All ROIs created by RITA get this prefix so they are namespaced away from clinical
+# ROIs (and sort to the bottom of the ROI list). RITA may only create/redefine ROIs
+# whose name starts with this prefix — it can never overwrite an original structure.
+AI_ROI_PREFIX = "zai_"
+
+
+def _margin_settings(margin_cm: float) -> dict:
+    """Uniform margin dict for SetAlgebraExpression (positive = Expand, negative = Contract)."""
+    value = abs(margin_cm)
+    return {
+        "Type": "Expand" if margin_cm >= 0 else "Contract",
+        "Superior": value, "Inferior": value, "Anterior": value,
+        "Posterior": value, "Right": value, "Left": value,
+    }
+
+
+@tool
+def create_roi_boolean(
+    name: str,
+    operation: str,
+    roi_a: List[str],
+    roi_b: Optional[List[str]] = None,
+    margin_a_cm: float = 0.0,
+    margin_b_cm: float = 0.0,
+    color: str = "Yellow",
+) -> str:
+    """Create (or redefine) a derived ROI from a boolean combination of existing ROIs.
+
+    Use this to build helper structures like "PTV minus rectum", "union of both parotids", or an
+    expanded margin structure. The result is:
+    (union of roi_a, with margin_a) <operation> (union of roi_b, with margin_b).
+
+    The new ROI is always named with a 'zai_' prefix (added automatically if you omit it) so it never
+    overwrites an original/clinical structure. The source ROIs (roi_a, roi_b) are only read, never
+    modified.
+
+    Args:
+        name: Name for the new ROI. A 'zai_' prefix is added automatically if not present.
+        operation: How to combine side A and side B — 'Union', 'Intersection', or 'Subtraction'
+            (Subtraction = A minus B). For a single group with a margin, use 'Union' and leave roi_b empty.
+        roi_a: Source ROI names for side A (combined by union).
+        roi_b: Source ROI names for side B (combined by union). Required for Intersection/Subtraction.
+        margin_a_cm: Uniform margin on side A in cm (positive = expand, negative = contract).
+        margin_b_cm: Uniform margin on side B in cm.
+        color: Display color for the new ROI.
+    """
+    valid_ops = ("Union", "Intersection", "Subtraction")
+    if operation not in valid_ops:
+        return f"Invalid operation '{operation}'. Use one of: {', '.join(valid_ops)}."
+    if operation in ("Intersection", "Subtraction") and not roi_b:
+        return f"'{operation}' requires roi_b (the second group of ROIs)."
+
+    # Enforce the AI namespace so we can never overwrite an original ROI.
+    new_name = name if name.startswith(AI_ROI_PREFIX) else AI_ROI_PREFIX + name
+    try:
+        case = get_current("Case")
+        exam = get_current("Examination")
+        pm = case.PatientModel
+
+        existing = {r.Name for r in pm.RegionsOfInterest}
+
+        # Safety: refuse to touch anything outside the AI namespace.
+        if new_name in existing and not new_name.startswith(AI_ROI_PREFIX):
+            return f"Refusing to modify existing ROI '{new_name}' — RITA only creates '{AI_ROI_PREFIX}' ROIs."
+
+        # Validate source ROIs exist (they are read-only, but fail early with a clear message).
+        missing = [r for r in (roi_a + (roi_b or [])) if r not in existing]
+        if missing:
+            return f"Source ROI(s) not found: {', '.join(missing)}. Use list_roi_names to see valid names."
+
+        redefined = new_name in existing
+        if not redefined:
+            pm.CreateRoi(Name=new_name, Color=color)
+
+        pm.RegionsOfInterest[new_name].SetAlgebraExpression(
+            ExpressionA={"Operation": "Union", "SourceRoiNames": roi_a,
+                         "MarginSettings": _margin_settings(margin_a_cm)},
+            ExpressionB={"Operation": "Union", "SourceRoiNames": roi_b or [],
+                         "MarginSettings": _margin_settings(margin_b_cm)},
+            ResultOperation=operation,
+            ResultMarginSettings=_margin_settings(0.0),
+        )
+        pm.RegionsOfInterest[new_name].UpdateDerivedGeometry(Examination=exam)
+
+        b_desc = f" {operation} ({', '.join(roi_b)})" if roi_b else ""
+        verb = "Redefined" if redefined else "Created"
+        return f"{verb} ROI '{new_name}' = ({', '.join(roi_a)}){b_desc}."
+    except Exception as e:
+        return f"Error creating ROI '{new_name}': {e}"
+
+
+@tool
+def get_roi_volume(roi_name: str) -> str:
+    """Get the volume (in cc) of an ROI in the current plan.
+
+    Use this to report or compare structure sizes — e.g. "what is the volume of the PTV" or to check
+    that a newly created ROI has geometry.
+
+    Args:
+        roi_name: Name of the ROI to measure.
+    """
+    try:
+        ss = get_current("BeamSet").GetStructureSet()
+        volume = ss.RoiGeometries[roi_name].GetRoiVolume()
+        return f"ROI '{roi_name}' volume: {volume:.2f} cc"
+    except Exception as e:
+        return f"Error getting volume for '{roi_name}': {e} (check the ROI name and that it has contours)."
+
+
 tools = [
     get_patient_name,
     get_patient_date_of_birth,
     get_patient_gender,
     get_patient_id,
     list_roi_names,
+    get_roi_volume,
+    create_roi_boolean,
     add_optimization_function,
     adjust_optimization_function,
     optimize_plan,
