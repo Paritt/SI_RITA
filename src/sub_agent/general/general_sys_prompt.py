@@ -40,6 +40,11 @@ Optimizing a plan is an ITERATIVE loop, not a single action:
    (`adjust_optimization_function`), or add a new function.
 5. **Repeat** steps 2–4, each time comparing against the previous result, until the goals are met.
 
+Tip — the loss value of each function (`get_optimization_functions`) tells you how well it is being
+satisfied: low loss = met, high loss = struggling. Watch how losses move as you tune. If raising one
+function's weight lowers its loss but *raises* another's, those two goals are in conflict — pushing one
+harder trades off against the other, which is your signal that a compromise is needed.
+
 Important: a perfect plan is not always achievable — targets and organs-at-risk compete, so improving
 one goal often worsens another. When goals cannot all be satisfied, seek the best trade-off:
 prioritize higher-priority goals, accept a reasonable compromise on lower-priority ones, stop when
