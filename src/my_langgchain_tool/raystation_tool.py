@@ -304,15 +304,87 @@ def get_clinical_goals() -> str:
         return f"Error reading clinical goals: {e}"
 
 
+@tool
+def list_roi_names() -> str:
+    """List the regions of interest (ROIs / structures) in the current patient's plan, with their type.
+
+    Use this to discover the exact structure names before adding/adjusting optimization functions or
+    getting dose statistics — e.g. when the user says "the rectum" you can confirm the ROI is named
+    'Rectum'. Types indicate targets (Ptv/Ctv/Gtv) vs organs-at-risk (OrganAtRisk), etc.
+    """
+    try:
+        ss = get_current("BeamSet").GetStructureSet()
+        rows = [(g.OfRoi.Name, g.OfRoi.Type, g.HasContours()) for g in ss.RoiGeometries]
+        lines = [f"- {n} ({t})" + ("" if c else "  [no contours]") for n, t, c in rows]
+    except Exception:
+        # Fall back to ROI definitions if no beam set / structure set is available.
+        try:
+            pm = get_current("Case").PatientModel
+            lines = [f"- {r.Name} ({r.Type})" for r in pm.RegionsOfInterest]
+        except Exception as e:
+            return f"Error listing ROIs: {e}"
+    if not lines:
+        return "No ROIs found in the current case."
+    return "ROIs in the current plan:\n" + "\n".join(lines)
+
+
+@tool
+def get_optimization_functions() -> str:
+    """List the current plan's optimization functions with their parameters and current loss value.
+
+    Use this to inspect the optimizer state and drive iterative tuning: functions with the HIGHEST
+    loss are the ones contributing most error, so adjust those (via `adjust_optimization_function`)
+    and re-run `optimize_plan`. Loss = the function's FunctionValue after the last optimization
+    (higher = worse; call `optimize_plan` first if losses look stale). Functions are listed
+    highest-loss first.
+    """
+    try:
+        plan = get_current("Plan")
+        po = plan.PlanOptimizations[0]
+        items = list(po.Objective.ConstituentFunctions) + list(po.Constraints)
+        if not items:
+            return "No optimization functions are defined for the current plan."
+
+        entries = []  # (loss_numeric_for_sort, text)
+        for it in items:
+            dp = getattr(it, "DoseFunctionParameters", None)
+            ftype = getattr(dp, "FunctionType", "") or ""
+            roi = getattr(getattr(it, "ForRegionOfInterest", None), "Name", "")
+            dose = getattr(dp, "DoseLevel", "")
+            weight = getattr(dp, "Weight", "")
+            fv = getattr(getattr(it, "FunctionValue", None), "FunctionValue", None)
+
+            vol = ""
+            if ftype in ("MaxDvh", "MinDvh"):
+                if getattr(dp, "IsAbsoluteVolume", False):
+                    vol = f", {getattr(dp, 'AbsoluteVolume', '')}cc"
+                else:
+                    vol = f", {getattr(dp, 'PercentVolume', '')}%"
+
+            loss_num = fv if isinstance(fv, (int, float)) else -1.0
+            loss_str = f"{fv:.4g}" if isinstance(fv, (int, float)) else "N/A"
+            entries.append((
+                loss_num,
+                f"- {roi}: {ftype} {dose} cGy{vol} (weight={weight}, loss={loss_str})",
+            ))
+
+        entries.sort(key=lambda e: e[0], reverse=True)
+        return "Optimization functions (highest loss first):\n" + "\n".join(t for _, t in entries)
+    except Exception as e:
+        return f"Error reading optimization functions: {e}"
+
+
 tools = [
     get_patient_name,
     get_patient_date_of_birth,
     get_patient_gender,
     get_patient_id,
+    list_roi_names,
     add_optimization_function,
     adjust_optimization_function,
     optimize_plan,
     get_dose_statistics,
+    get_optimization_functions,
     get_clinical_goals,
 ]
 available_functions = {tool.name: tool for tool in tools}
