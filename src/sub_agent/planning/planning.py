@@ -3,17 +3,14 @@ from langsmith import traceable
 
 from src.rita_graph import AgentState
 from src.util.llm import get_chat_model
-from src.sub_agent.general.general_sys_prompt import (
-    general_agent_system_message,
-    GENERAL_TOOLS,
+from src.sub_agent.planning.planning_sys_prompt import (
+    planning_agent_system_message,
+    PLANNING_TOOLS,
 )
 
-# Kept name for backward compatibility with rita_graph's import.
-ALL_GENERAL_TOOLS = GENERAL_TOOLS
 
-
-@traceable(run_type="llm", name="General Agent", project="SI_RITA")
-def general_agent(state: AgentState) -> AgentState:
+@traceable(run_type="llm", name="Planning Agent", project="SI_RITA")
+def planning_agent(state: AgentState) -> AgentState:
     selected_model = state.get("model", "gpt-5")
     try:
         model = get_chat_model(selected_model)
@@ -24,15 +21,15 @@ def general_agent(state: AgentState) -> AgentState:
 
     # bind_tools converts the tools into each provider's native schema
     # (OpenAI "function" format vs Anthropic "input_schema" format).
-    model_with_tools = model.bind_tools(ALL_GENERAL_TOOLS)
+    model_with_tools = model.bind_tools(PLANNING_TOOLS)
 
     request = [
-        SystemMessage(content=general_agent_system_message),
-        *state["messages"]
+        SystemMessage(content=planning_agent_system_message),
+        *state["messages"],
     ]
 
     try:
-        print(f"\n 🤖General Agent is thinking...")
+        print(f"\n 🧭Planning Agent is thinking...")
         response = model_with_tools.invoke(request)
         answer_text = response.content
         tool_calls = response.tool_calls or []
@@ -40,7 +37,7 @@ def general_agent(state: AgentState) -> AgentState:
         answer_text = f"Error: {e}"
         tool_calls = []
 
-    print('\n 🤖General:', answer_text)
-    print(f"\n 🛠️General Tool calls: {tool_calls}")
+    print('\n 🧭Planning:', answer_text)
+    print(f"\n 🛠️Planning Tool calls: {tool_calls}")
     state["messages"].append(AIMessage(content=answer_text, tool_calls=tool_calls))
     return state

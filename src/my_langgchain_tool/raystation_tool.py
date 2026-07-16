@@ -1,3 +1,5 @@
+import csv
+import os
 from typing import List, Optional
 from langchain_core.tools import tool
 try:
@@ -44,6 +46,7 @@ def get_patient_id() -> str:
 _DOSE_ONLY_TYPES = ("MaxDose", "MinDose", "UniformDose")
 _DVH_TYPES = ("MaxDvh", "MinDvh")
 _EUD_TYPES = ("MaxEud", "MinEud", "TargetEud")
+_FALLOFF_TYPES = ("DoseFallOff",)
 
 
 def _goal_description(eval_func) -> str:
@@ -86,23 +89,38 @@ def add_optimization_function(
     is_constraint: bool = False,
     is_absolute_volume: bool = False,
     eud_parameter_a: Optional[float] = None,
+    low_dose_cgy: Optional[float] = None,
+    low_dose_distance_cm: Optional[float] = None,
+    adapt_to_target_dose: bool = False,
 ) -> str:
     """Add a new optimization objective or constraint function to an ROI in the current plan.
 
     Use this when the user wants to introduce a NEW planning goal for a structure —
     e.g. "add a max dose of 4000 cGy to the rectum" or "put a min dose objective on the PTV".
 
+    Techniques:
+    - To control the MEAN dose of an ROI, use 'MaxEud' with eud_parameter_a=1 (EUD with a=1 equals
+      the mean dose), setting dose_cgy to the mean you want to stay under.
+    - To control dose SPILLAGE / conformity around a target (how fast dose falls off outside it), use
+      'DoseFallOff': set dose_cgy to the high dose level (usually the prescription), low_dose_cgy to
+      the dose it should drop to, and low_dose_distance_cm to the distance over which that drop happens.
+
     Args:
         roi_name: Name of the ROI (target or organ-at-risk) the function applies to.
         function_type: One of 'MaxDose', 'MinDose', 'UniformDose', 'MaxDvh', 'MinDvh',
-            'MaxEud', 'MinEud', 'TargetEud'.
-        dose_cgy: Dose level for the function, in cGy.
+            'MaxEud', 'MinEud', 'TargetEud', 'DoseFallOff'.
+        dose_cgy: Dose level for the function, in cGy. For 'DoseFallOff' this is the HIGH dose level.
         volume_percent: Volume for DVH-type functions (MaxDvh/MinDvh) — percent by default,
             or cc if is_absolute_volume is True. Ignored for other types.
         weight: Optimization weight / importance (higher = more emphasis). Ignored for constraints.
         is_constraint: True to add as a hard constraint instead of a weighted objective.
         is_absolute_volume: For DVH functions, interpret volume_percent as an absolute volume (cc).
-        eud_parameter_a: The 'a' parameter for EUD-type functions (default 1).
+        eud_parameter_a: The 'a' parameter for EUD-type functions (default 1; a=1 gives mean dose).
+        low_dose_cgy: For 'DoseFallOff', the low dose level (cGy) the dose should fall to.
+        low_dose_distance_cm: For 'DoseFallOff', the distance (cm) over which dose falls from the high
+            to the low level (smaller = tighter/steeper fall-off).
+        adapt_to_target_dose: For 'DoseFallOff', if True the high/low dose levels adapt to the target
+            dose levels automatically.
     """
     try:
         plan = get_current("Plan")
@@ -126,11 +144,22 @@ def add_optimization_function(
         elif function_type in _EUD_TYPES:
             p.DoseLevel = dose_cgy
             p.EudParameterA = eud_parameter_a if eud_parameter_a is not None else 1
+        elif function_type in _FALLOFF_TYPES:
+            if low_dose_cgy is None or low_dose_distance_cm is None:
+                o.DeleteFunction()
+                return (
+                    "'DoseFallOff' requires both low_dose_cgy (the dose to fall to) and "
+                    "low_dose_distance_cm (the distance over which it falls)."
+                )
+            p.AdaptToTargetDoseLevels = adapt_to_target_dose
+            p.HighDoseLevel = dose_cgy
+            p.LowDoseLevel = low_dose_cgy
+            p.LowDoseDistance = low_dose_distance_cm
         else:
             o.DeleteFunction()
             return (
                 f"Unsupported function_type '{function_type}'. Supported: "
-                f"{', '.join(_DOSE_ONLY_TYPES + _DVH_TYPES + _EUD_TYPES)}."
+                f"{', '.join(_DOSE_ONLY_TYPES + _DVH_TYPES + _EUD_TYPES + _FALLOFF_TYPES)}."
             )
 
         if not is_constraint:
@@ -140,6 +169,11 @@ def add_optimization_function(
             f" at {volume_percent}{'cc' if is_absolute_volume else '%'} volume"
         )
         kind = "constraint" if is_constraint else f"objective (weight={weight})"
+        if function_type in _FALLOFF_TYPES:
+            return (
+                f"Added DoseFallOff to '{roi_name}': {dose_cgy:.0f} -> {low_dose_cgy:.0f} cGy over "
+                f"{low_dose_distance_cm} cm as a {kind}."
+            )
         return f"Added {function_type} of {dose_cgy:.0f} cGy to '{roi_name}'{vol_note} as a {kind}."
     except Exception as e:
         return f"Error adding optimization function to '{roi_name}': {e}"
@@ -302,6 +336,77 @@ def get_clinical_goals() -> str:
         return header + "\n" + "\n".join(lines)
     except Exception as e:
         return f"Error reading clinical goals: {e}"
+
+
+@tool
+def export_clinical_goals_csv(file_path: Optional[str] = None) -> str:
+    """Export the current plan's clinical goals to a CSV file (one row per goal).
+
+    Use this when the user wants to save, export, or download the clinical goals — e.g.
+    "export the clinical goals to csv" or "save the plan evaluation as a spreadsheet".
+    Each row records the ROI, priority, goal description, acceptance level, criteria, the
+    achieved value, and PASS/FAIL status (the same information reported by get_clinical_goals).
+
+    Args:
+        file_path: Optional full path for the CSV file. If omitted, a file named
+            'clinical_goals_<PatientID>.csv' is written to the user's Desktop (falling back to
+            the home directory). A '.csv' extension is added automatically if missing.
+    """
+    try:
+        plan = get_current("Plan")
+        eval_funcs = plan.TreatmentCourse.EvaluationSetup.EvaluationFunctions
+
+        rows = []
+        n_pass = 0
+        for ef in eval_funcs:
+            pg = ef.PlanningGoal
+            roi_obj = getattr(ef, "ForRegionOfInterest", None)
+            roi = getattr(roi_obj, "Name", "N/A")
+            value = ef.GetClinicalGoalValue()
+            met = _is_goal_met(value, pg.PrimaryAcceptanceLevel, pg.GoalCriteria)
+            n_pass += 1 if met else 0
+            rows.append({
+                "Priority": pg.Priority,
+                "ROI": roi,
+                "Goal": _goal_description(ef),
+                "GoalType": pg.Type,
+                "Criteria": pg.GoalCriteria,
+                "AcceptanceLevel": pg.PrimaryAcceptanceLevel,
+                "ParameterValue": pg.ParameterValue,
+                "AchievedValue": round(value, 4),
+                "Status": "PASS" if met else "FAIL",
+            })
+
+        if not rows:
+            return "No clinical goals are defined for the current plan; nothing to export."
+
+        rows.sort(key=lambda r: (r["Priority"], r["ROI"]))
+
+        # Resolve the output path.
+        if file_path:
+            out_path = file_path if file_path.lower().endswith(".csv") else file_path + ".csv"
+        else:
+            try:
+                patient_id = get_current("Patient").PatientID
+            except Exception:
+                patient_id = "plan"
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            base_dir = desktop if os.path.isdir(desktop) else os.path.expanduser("~")
+            out_path = os.path.join(base_dir, f"clinical_goals_{patient_id}.csv")
+
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        fieldnames = ["Priority", "ROI", "Goal", "GoalType", "Criteria",
+                      "AcceptanceLevel", "ParameterValue", "AchievedValue", "Status"]
+        with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        return (
+            f"Exported {len(rows)} clinical goals ({n_pass}/{len(rows)} passing) to '{out_path}'."
+        )
+    except Exception as e:
+        return f"Error exporting clinical goals to CSV: {e}"
 
 
 @tool
@@ -483,19 +588,27 @@ def get_roi_volume(roi_name: str) -> str:
         return f"Error getting volume for '{roi_name}': {e} (check the ROI name and that it has contours)."
 
 
-tools = [
+# Read-only / reporting tools — never modify the plan, safe to expose to any agent.
+READ_TOOLS = [
     get_patient_name,
     get_patient_date_of_birth,
     get_patient_gender,
     get_patient_id,
     list_roi_names,
     get_roi_volume,
+    get_dose_statistics,
+    get_optimization_functions,
+    get_clinical_goals,
+    export_clinical_goals_csv,
+]
+
+# Plan-modifying tools — these change RayStation plan state; reserved for the planning agent.
+PLANNING_ACTION_TOOLS = [
     create_roi_boolean,
     add_optimization_function,
     adjust_optimization_function,
     optimize_plan,
-    get_dose_statistics,
-    get_optimization_functions,
-    get_clinical_goals,
 ]
+
+tools = READ_TOOLS + PLANNING_ACTION_TOOLS
 available_functions = {tool.name: tool for tool in tools}
